@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
+const authMiddleware = require('../middleware/auth');
+const { buildHistoryQuery } = require('../utils/sensorHistoryQuery');
 
 router.post('/data', async (req, res) => {
   try {
@@ -86,20 +88,48 @@ router.get('/latest/:deviceId', async (req, res) => {
 });
 
 // Historique des mesures
-router.get('/history/:deviceId', async (req, res) => {
+router.get('/history/:deviceId', authMiddleware, async (req, res) => {
   try {
     const { deviceId } = req.params;
+    const { startDate, endDate, type = 'all' } = req.query;
+    const allowedTypes = ['all', 'soil', 'air', 'temperature'];
 
-    const result = await pool.query(
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({
+        message: 'Type de mesure invalide'
+      });
+    }
+
+    if ((startDate && !isValidDate(startDate)) || (endDate && !isValidDate(endDate))) {
+      return res.status(400).json({
+        message: 'Format de date invalide'
+      });
+    }
+
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({
+        message: 'La date de debut doit etre avant la date de fin'
+      });
+    }
+
+    const deviceResult = await pool.query(
       `
-      SELECT *
-      FROM donnees_capteurs
-      WHERE dispositif_id = $1
-      ORDER BY enregistre_le DESC
-      LIMIT 100
+      SELECT id
+      FROM dispositifs
+      WHERE id = $1
+      AND utilisateur_id = $2
       `,
-      [deviceId]
+      [deviceId, req.user.userId]
     );
+
+    if (deviceResult.rows.length === 0) {
+      return res.status(404).json({
+        message: 'Dispositif introuvable'
+      });
+    }
+
+    const historyQuery = buildHistoryQuery(deviceId, { startDate, endDate, type });
+    const result = await pool.query(historyQuery.text, historyQuery.values);
 
     res.json(result.rows);
 
@@ -111,5 +141,9 @@ router.get('/history/:deviceId', async (req, res) => {
     });
   }
 });
+
+function isValidDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(value).getTime());
+}
 
 module.exports = router;
