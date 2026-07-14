@@ -1,20 +1,28 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/db');
+const authMiddleware = require('../middleware/auth');
+const Device = require('../models/postgres/Device');
+const PumpLog = require('../models/postgres/PumpLog');
+const { isDemoMode, getDemoPumpHistory } = require('../utils/demo');
 
 // Pump ON
-router.post('/on', async (req, res) => {
+router.post('/on', authMiddleware, async (req, res) => {
   try {
     const { deviceId } = req.body;
 
-    await pool.query(
-      `
-      INSERT INTO journal_pompe
-      (dispositif_id, action, declenche_par)
-      VALUES ($1, 'ON', 'manuel')
-      `,
-      [deviceId]
-    );
+    const device = await Device.findByIdAndUserId(deviceId, req.user.userId);
+
+    if (!device) {
+      return res.status(404).json({
+        message: 'Dispositif introuvable'
+      });
+    }
+
+    await PumpLog.create({
+      deviceId,
+      action: 'ON',
+      triggeredBy: 'manual'
+    });
 
     res.status(201).json({
       message: 'Pompe activée'
@@ -30,18 +38,23 @@ router.post('/on', async (req, res) => {
 });
 
 // Pump OFF
-router.post('/off', async (req, res) => {
+router.post('/off', authMiddleware, async (req, res) => {
   try {
     const { deviceId } = req.body;
 
-    await pool.query(
-      `
-      INSERT INTO journal_pompe
-      (dispositif_id, action, declenche_par)
-      VALUES ($1, 'OFF', 'manuel')
-      `,
-      [deviceId]
-    );
+    const device = await Device.findByIdAndUserId(deviceId, req.user.userId);
+
+    if (!device) {
+      return res.status(404).json({
+        message: 'Dispositif introuvable'
+      });
+    }
+
+    await PumpLog.create({
+      deviceId,
+      action: 'OFF',
+      triggeredBy: 'manual'
+    });
 
     res.status(201).json({
       message: 'Pompe arrêtée'
@@ -56,22 +69,26 @@ router.post('/off', async (req, res) => {
   }
 });
 
-// Get pump history for a device - journal_pompe
-router.get('/history/:deviceId', async (req, res) => {
+// Get pump history for a device
+router.get('/history/:deviceId', authMiddleware, async (req, res) => {
+  if (isDemoMode()) {
+    return res.json(getDemoPumpHistory(req.params.deviceId));
+  }
+
   try {
     const { deviceId } = req.params;
 
-    const result = await pool.query(
-      `
-      SELECT *
-      FROM journal_pompe
-      WHERE dispositif_id = $1
-      ORDER BY declenche_le DESC
-      `,
-      [deviceId]
-    );
+    const device = await Device.findByIdAndUserId(deviceId, req.user.userId);
 
-    res.json(result.rows);
+    if (!device) {
+      return res.status(404).json({
+        message: 'Dispositif introuvable'
+      });
+    }
+
+    const pumpLogs = await PumpLog.findByDeviceIdAndUserId(deviceId, req.user.userId);
+
+    res.json(pumpLogs);
 
   } catch (error) {
     console.error(error);

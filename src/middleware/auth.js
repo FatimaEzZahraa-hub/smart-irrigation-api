@@ -1,7 +1,14 @@
 const jwt = require('jsonwebtoken');
+const { isUuid } = require('../utils/uuid');
 
 module.exports = (req, res, next) => {
   try {
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        message: 'Configuration auth manquante'
+      });
+    }
+
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
@@ -16,6 +23,12 @@ module.exports = (req, res, next) => {
       token,
       process.env.JWT_SECRET
     );
+
+    if (!isUuid(decoded.userId)) {
+      return res.status(401).json({
+        message: 'Token invalide'
+      });
+    }
 
     req.user = decoded;
 

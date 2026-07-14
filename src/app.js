@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-require('./config/db'); // <-- connexion PostgreSQL
 
 const app = express();
 
